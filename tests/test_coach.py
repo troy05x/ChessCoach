@@ -212,6 +212,24 @@ class TestEngineAndApp(unittest.TestCase):
             mock_sleep.assert_any_call(2)
             mock_sleep.assert_any_call(4)
 
+    def test_offline_fallback_without_genai(self):
+        daily_stats = {"total_games": 0, "wins": 0, "losses": 0, "draws": 0, "mistakes": 0, "blunders": 0, "avg_cp_loss": 0.0}
+        game_analyses = []
+        historical_stats = {"last_7_days": {}, "last_30_days": {}}
+
+        with patch("engine.GENAI_AVAILABLE", False):
+            report = generate_gemini_report(
+                date_str="2026-11-03",
+                username="Troy05x",
+                daily_stats=daily_stats,
+                game_analyses=game_analyses,
+                historical_stats=historical_stats,
+                api_key="valid-key"
+            )
+
+            self.assertIn("Executive Performance Overview", report)
+            self.assertIn("Recurring Macro Patterns & Psychological Blindspots", report)
+
     def test_generate_gemini_report_offline_fallback_missing_key(self):
         daily_stats = {"total_games": 0, "wins": 0, "losses": 0, "draws": 0, "mistakes": 0, "blunders": 0, "avg_cp_loss": 0.0}
         game_analyses = []

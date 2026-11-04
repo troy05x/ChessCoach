@@ -1,8 +1,8 @@
 # Lightweight, ultra-compatible dependencies optimized for low-memory instances
-# Compatible across Python 3.8, 3.9, 3.10, 3.11, 3.12+
+# Core dependencies compatible across Python 3.8, 3.9, 3.10, 3.11, 3.12+
 python-chess>=1.999
 requests>=2.25.0
 Flask>=2.0.0
 markdown>=3.3.0
-# Official modern Google GenAI SDK for Gemini 3.8 Flash
-google-genai>=0.1.1
+# Official modern Google GenAI SDK for Gemini 3.8 Flash (requires Python >= 3.10)
+google-genai>=0.1.1; python_version >= "3.10"

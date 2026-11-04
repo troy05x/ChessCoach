@@ -168,6 +168,7 @@ sudo bash install.sh
 During installation, the installer will:
 1. Verify system prerequisites (OS, CPU, memory, internet).
 2. Install system packages: `python3-pip`, `python3-venv`, `stockfish`, `git`, `cron`.
+   - *Note on Python versions:* The official `google-genai` SDK for Gemini Flash requires **Python >= 3.10**. On Ubuntu 20.04 LTS (where default Python is 3.8), `install.sh` automatically detects this and installs Python 3.10 via `ppa:deadsnakes/ppa` to ensure all Gemini features work out of the box. If Python < 3.10 is kept without deadsnakes, the application still functions normally in offline coaching report mode.
 3. Set up directory `/data` and `/data/reports` with permissions for the non-root application user so that automatic runs never fail with permission errors.
 4. Set up Python virtual environment (`venv/`) and install requirements.
 5. Securely prompt for your `GEMINI_API_KEY` (hidden input) and store it in `/etc/chess-coach.env` with restricted `chmod 600` permissions.
