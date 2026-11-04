@@ -2,7 +2,7 @@
 
 A self-hosted, lightweight AI Chess Coach Web Application engineered to run 24/7 on an Ubuntu 20.04/22.04 cloud instance (2 vCPUs, 1GB RAM).
 
-The application automatically retrieves all chess matches played yesterday by **Troy05x** across **Chess.com** and **Lichess**, performs fast local positional blunder analysis using **Stockfish 16**, detects multi-day macro patterns (weekly and monthly recurring flaws), synthesizes Grandmaster-grade coaching reports using **Google Gemini 2.5 Flash**, and serves interactive dashboards on a mobile-responsive web server.
+The application automatically retrieves all chess matches played yesterday by **Troy05x** across **Chess.com** and **Lichess**, performs fast local positional blunder analysis using **Stockfish 16**, detects multi-day macro patterns (weekly and monthly recurring flaws), synthesizes Grandmaster-grade coaching reports using **Google Gemini 3.8 Flash**, and serves interactive dashboards on a mobile-responsive web server.
 
 ---
 
@@ -37,7 +37,7 @@ The application automatically retrieves all chess matches played yesterday by **
       └──────────┬───────────┘
                  ▼
       ┌──────────────────────┐
-      │ Google Gemini Flash  │  (gemini-2.5-flash via google-genai)
+      │ Google Gemini Flash  │  (gemini-3.8-flash via google-genai)
       │ AI Coaching Prompt   │
       └──────────┬───────────┘
                  ▼
@@ -72,8 +72,8 @@ The application automatically retrieves all chess matches played yesterday by **
    - Identifies frequent culprit pieces involved in blunders.
    - Maintains rolling 7-day (weekly) and 30-day (monthly) pattern tracking inside SQLite to discover recurring psychological or positional flaws over time.
 
-4. **AI Coaching via Gemini 2.5 Flash:**
-   - Packages daily game telemetry and rolling weekly/monthly trends into a structured prompt sent to Google Gemini 2.5 Flash (`gemini-2.5-flash`) using the official `google-genai` SDK.
+4. **AI Coaching via Gemini 3.8 Flash:**
+   - Packages daily game telemetry and rolling weekly/monthly trends into a structured prompt sent to Google Gemini 3.8 Flash (`gemini-3.8-flash`) using the official `google-genai` SDK.
    - Produces structured reports with sections:
      - *Executive Performance Overview*
      - *Recurring Macro Patterns & Psychological Blindspots*
@@ -124,7 +124,7 @@ OCI blocks all incoming ports in the Virtual Cloud Network (VCN) by default. You
 
 ## How to Obtain a Free Google Gemini API Key
 
-The AI Coach uses Google's free-tier **Gemini 2.5 Flash** (`gemini-2.5-flash`) via Google AI Studio. Follow these quick steps to get your key:
+The AI Coach uses Google's free-tier **Gemini 3.8 Flash** (`gemini-3.8-flash`) via Google AI Studio. Follow these quick steps to get your key:
 
 1. **Visit Google AI Studio:**
    - Go to [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey) (or [https://aistudio.google.com/](https://aistudio.google.com/)).
@@ -184,7 +184,7 @@ The application reads configuration from `/etc/chess-coach.env` (or environment 
 |---|---|---|
 | `CHESS_USERNAME` | `Troy05x` | Target player username on Chess.com & Lichess |
 | `GEMINI_API_KEY` | *(prompted during install)* | Google AI Studio Gemini API key |
-| `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model name (supports gemini-3.8-flash, gemini-2.5-flash) |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model name (`gemini-3.8-flash`) |
 | `DATA_DIR` | `/data` | Path for SQLite database and reports |
 | `STOCKFISH_PATH` | `/usr/games/stockfish` | Path to Stockfish binary |
 | `PORT` | `5000` | Web server listening port |
