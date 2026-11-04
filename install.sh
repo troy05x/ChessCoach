@@ -167,20 +167,60 @@ if [ -f "$ENV_FILE" ]; then
     fi
 fi
 
-USER_API_KEY="${GEMINI_API_KEY:-$EXISTING_KEY}"
+# Safe tty reader function to ensure prompt works across sudo, pipes, and non-interactive runs
+prompt_input() {
+    local prompt_msg="$1"
+    local is_secret="${2:-false}"
+    local var_out=""
+    if [ -t 0 ]; then
+        if [ "$is_secret" = "true" ]; then
+            read -rsp "$prompt_msg" var_out
+            echo "" >&2
+        else
+            read -rp "$prompt_msg" var_out
+        fi
+    elif [ -e /dev/tty ]; then
+        if [ "$is_secret" = "true" ]; then
+            read -rsp "$prompt_msg" var_out < /dev/tty
+            echo "" >&2
+        else
+            read -rp "$prompt_msg" var_out < /dev/tty
+        fi
+    fi
+    echo "$var_out"
+}
 
-if [ -z "$USER_API_KEY" ]; then
-    echo ""
-    echo -e "${YELLOW}================================================================${NC}"
-    echo -e "${YELLOW}             GOOGLE GEMINI FLASH API KEY SETUP                  ${NC}"
-    echo -e "${YELLOW}================================================================${NC}"
-    echo "The AI Coach uses Google Gemini 2.5 Flash via Google AI Studio."
-    echo "If you already have a key, paste it below. (Input is hidden)"
-    echo "If you do not have one right now, press ENTER to configure it later."
-    echo ""
-    read -rsp "Enter GEMINI_API_KEY: " INPUT_KEY
-    echo ""
+echo ""
+echo -e "${YELLOW}================================================================${NC}"
+echo -e "${YELLOW}             GOOGLE GEMINI FLASH API KEY SETUP                  ${NC}"
+echo -e "${YELLOW}================================================================${NC}"
+echo "The AI Coach uses Google Gemini 2.5 Flash via Google AI Studio."
+echo "Need an API key? Get one for free at: https://aistudio.google.com/apikey"
+echo ""
+
+if [ -n "$EXISTING_KEY" ]; then
+    KEY_PREVIEW="${EXISTING_KEY:0:6}...${EXISTING_KEY: -4}"
+    echo -e "An existing API key is currently configured: ${GREEN}${KEY_PREVIEW}${NC}"
+    echo "Press ENTER to keep the existing key, or paste your new key below."
+else
+    echo "Paste your Google Gemini API key below (input will remain hidden for security)."
+    echo "If you do not have one yet, press ENTER to proceed in offline report mode."
+fi
+
+INPUT_KEY=$(prompt_input "Enter GEMINI_API_KEY: " "true")
+# Trim leading/trailing whitespace and surrounding quotes
+INPUT_KEY=$(echo "$INPUT_KEY" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'\'']//' -e 's/["'\'']$//')
+
+if [ -n "$INPUT_KEY" ]; then
     USER_API_KEY="$INPUT_KEY"
+    log_success "New GEMINI_API_KEY entered."
+else
+    USER_API_KEY="${EXISTING_KEY:-}"
+    if [ -n "$USER_API_KEY" ]; then
+        log_info "Retaining previously configured GEMINI_API_KEY."
+    else
+        log_warning "No GEMINI_API_KEY provided. The coach will generate structured offline reports until a key is added to $ENV_FILE."
+    fi
 fi
 
 # Port prompt & configuration

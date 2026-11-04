@@ -122,6 +122,40 @@ OCI blocks all incoming ports in the Virtual Cloud Network (VCN) by default. You
 
 ---
 
+## How to Obtain a Free Google Gemini API Key
+
+The AI Coach uses Google's free-tier **Gemini 2.5 Flash** (`gemini-2.5-flash`) via Google AI Studio. Follow these quick steps to get your key:
+
+1. **Visit Google AI Studio:**
+   - Go to [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey) (or [https://aistudio.google.com/](https://aistudio.google.com/)).
+   - Sign in with your standard Google Account.
+
+2. **Generate the Key:**
+   - Click the blue **"Create API Key"** (or **"Get API key"**) button.
+   - Choose **"Create API key in new project"** (or select an existing Google Cloud project if you have one).
+   - A modal will appear displaying your new API key string (e.g. `AIzaSy...`).
+
+3. **Copy and Save:**
+   - Click **Copy**. Note: Ensure you copy the entire key without extra quotes or spaces.
+   - Free tier includes generous free requests per minute, which is more than enough for daily coaching telemetry analysis.
+
+4. **Update / Configure on Your Server:**
+   - Either re-run `sudo bash install.sh` (which will prompt you to enter/update your key).
+   - Or directly edit the environment file:
+     ```bash
+     sudo nano /etc/chess-coach.env
+     ```
+     Set:
+     ```bash
+     GEMINI_API_KEY=AIzaSy...your_copied_key_here
+     ```
+     Save and restart the background dashboard service:
+     ```bash
+     sudo systemctl restart chess-coach
+     ```
+
+---
+
 ## Quick Start / Installation
 
 ### 1. Run the Production Installer

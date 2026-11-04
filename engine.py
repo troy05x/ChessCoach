@@ -597,7 +597,8 @@ Provide direct, actionable, coach-grade advice. Keep formatting sharp with bulle
     # Method 2: Direct HTTP REST call to Gemini 2.5 Flash API via requests
     # Fully compatible with Python 3.8+ on Ubuntu 20.04 with zero SDK dependencies
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        clean_key = api_key.strip().strip("'\"")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={clean_key}"
         rest_body = {
             "system_instruction": {
                 "parts": [{"text": system_instruction}]
@@ -627,6 +628,11 @@ Provide direct, actionable, coach-grade advice. Keep formatting sharp with bulle
                 if report_text:
                     logger.info("Successfully generated coaching report via direct Gemini REST API.")
                     return report_text
+        elif resp.status_code == 400 and "API_KEY_INVALID" in resp.text:
+            logger.error(
+                "Gemini API Error: The provided GEMINI_API_KEY is invalid. "
+                "Please obtain a valid API key from https://aistudio.google.com/apikey and update /etc/chess-coach.env."
+            )
         else:
             logger.error(f"Gemini REST API returned error {resp.status_code}: {resp.text}")
     except Exception as e:
