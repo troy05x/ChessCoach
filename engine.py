@@ -490,47 +490,45 @@ def generate_gemini_report(
 ) -> str:
     """
     Sends structured chess telemetry and pattern data to Google Gemini 2.5 Flash
-    via the official `google-genai` SDK to generate an actionable macro coaching report.
+    to generate an actionable macro coaching report.
+    Supports both official `google-genai` SDK and zero-dependency lightweight REST API
+    (ensuring full compatibility across all Python versions, including Python 3.8 on Ubuntu 20.04).
     """
     if not api_key:
         logger.warning("No GEMINI_API_KEY provided. Generating fallback analytical report.")
         return generate_offline_report(date_str, username, daily_stats, game_analyses, historical_stats)
 
-    try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
+    # Build clean JSON payload for Gemini prompt
+    payload = {
+        "player": username,
+        "report_date": date_str,
+        "daily_summary": daily_stats,
+        "historical_macro_trends": historical_stats,
+        "games": [
+            {
+                "game_id": g["game_id"],
+                "platform": g["platform"],
+                "user_color": g["user_color"],
+                "opponent": g["opponent"],
+                "result": g["result"],
+                "opening": g["opening"],
+                "mistake_count": len(g["mistakes"]),
+                "blunder_count": len(g["blunders"]),
+                "key_mistakes": g["mistakes"][:3],
+                "key_blunders": g["blunders"][:3]
+            }
+            for g in game_analyses
+        ]
+    }
 
-        # Build clean JSON payload for Gemini prompt
-        payload = {
-            "player": username,
-            "report_date": date_str,
-            "daily_summary": daily_stats,
-            "historical_macro_trends": historical_stats,
-            "games": [
-                {
-                    "game_id": g["game_id"],
-                    "platform": g["platform"],
-                    "user_color": g["user_color"],
-                    "opponent": g["opponent"],
-                    "result": g["result"],
-                    "opening": g["opening"],
-                    "mistake_count": len(g["mistakes"]),
-                    "blunder_count": len(g["blunders"]),
-                    "key_mistakes": g["mistakes"][:3],
-                    "key_blunders": g["blunders"][:3]
-                }
-                for g in game_analyses
-            ]
-        }
+    system_instruction = (
+        "You are an Elite Grandmaster AI Chess Coach. Your role is not just to point out individual move blunders, "
+        "but to identify systemic, psychological, and recurring macro patterns in the player's games. "
+        "Examine recurring positional themes, game phases where the player loses focus, piece coordination flaws, "
+        "and time-control habits. Connect yesterday's mistakes to the player's rolling weekly and monthly trends."
+    )
 
-        system_instruction = (
-            "You are an Elite Grandmaster AI Chess Coach. Your role is not just to point out individual move blunders, "
-            "but to identify systemic, psychological, and recurring macro patterns in the player's games. "
-            "Examine recurring positional themes, game phases where the player loses focus, piece coordination flaws, "
-            "and time-control habits. Connect yesterday's mistakes to the player's rolling weekly and monthly trends."
-        )
-
-        user_prompt = f"""
+    user_prompt = f"""
 Analyze the following telemetry for chess player '{username}' for date {date_str}.
 
 Telemetry Data:
@@ -557,6 +555,10 @@ You MUST include these exact main sections (using H2 ## headers):
 Provide direct, actionable, coach-grade advice. Keep formatting sharp with bullet points and bold emphasis.
 """
 
+    # Method 1: Try google-genai SDK if available in current Python environment
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=user_prompt,
@@ -565,13 +567,55 @@ Provide direct, actionable, coach-grade advice. Keep formatting sharp with bulle
                 "temperature": 0.3,
             }
         )
-        report_text = response.text or ""
-        logger.info("Successfully generated coaching report via Gemini 2.5 Flash.")
-        return report_text
-
+        if response and response.text:
+            logger.info("Successfully generated coaching report via google-genai SDK.")
+            return response.text
+    except ImportError:
+        logger.info("google-genai SDK not installed; using direct lightweight Gemini REST API.")
     except Exception as e:
-        logger.error(f"Failed to query Gemini 2.5 Flash API: {e}. Falling back to offline report.")
-        return generate_offline_report(date_str, username, daily_stats, game_analyses, historical_stats)
+        logger.warning(f"google-genai SDK query failed ({e}); attempting direct REST API fallback...")
+
+    # Method 2: Direct HTTP REST call to Gemini 2.5 Flash API via requests
+    # Fully compatible with Python 3.8+ on Ubuntu 20.04 with zero SDK dependencies
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        rest_body = {
+            "system_instruction": {
+                "parts": [{"text": system_instruction}]
+            },
+            "contents": [
+                {
+                    "parts": [{"text": user_prompt}]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.3
+            }
+        }
+        resp = requests.post(
+            url,
+            json=rest_body,
+            headers={"Content-Type": "application/json"},
+            timeout=45
+        )
+        if resp.status_code == 200:
+            result = resp.json()
+            candidates = result.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                text_parts = [p.get("text", "") for p in parts if "text" in p]
+                report_text = "".join(text_parts).strip()
+                if report_text:
+                    logger.info("Successfully generated coaching report via direct Gemini REST API.")
+                    return report_text
+        else:
+            logger.error(f"Gemini REST API returned error {resp.status_code}: {resp.text}")
+    except Exception as e:
+        logger.error(f"Direct Gemini REST API request failed: {e}")
+
+    # Fallback to local offline template if API key is invalid or unreachable
+    logger.info("Falling back to offline analytical report.")
+    return generate_offline_report(date_str, username, daily_stats, game_analyses, historical_stats)
 
 
 def generate_offline_report(

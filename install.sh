@@ -142,8 +142,14 @@ log_info "Setting up Python virtual environment at $VENV_DIR..."
 python3 -m venv "$VENV_DIR"
 
 log_info "Installing Python dependencies inside virtual environment..."
-"$VENV_DIR/bin/pip" install --upgrade pip
-"$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
+"$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel || true
+
+# Install requirements with fallback if any optional package has no distribution on older Python
+if ! "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"; then
+    log_warning "Pip encountered an issue with one or more packages in requirements.txt. Retrying core dependencies..."
+    # Guarantee essential packages for Ubuntu 20.04 (Python 3.8)
+    "$VENV_DIR/bin/pip" install "python-chess>=1.999" "requests>=2.25.0" "Flask>=2.0.0" "markdown>=3.3.0"
+fi
 chown -R "$TARGET_USER:$TARGET_USER" "$VENV_DIR"
 
 # ------------------------------------------------------------------------------
