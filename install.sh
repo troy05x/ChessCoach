@@ -153,13 +153,18 @@ fi
 chown -R "$TARGET_USER:$TARGET_USER" "$VENV_DIR"
 
 # ------------------------------------------------------------------------------
-# 6. Secure Prompt for GEMINI_API_KEY & Save Environment File
+# 6. Secure Prompt for GEMINI_API_KEY & Port Configuration
 # ------------------------------------------------------------------------------
 ENV_FILE="/etc/chess-coach.env"
 EXISTING_KEY=""
+EXISTING_PORT="5000"
 
 if [ -f "$ENV_FILE" ]; then
     EXISTING_KEY=$(grep -E '^GEMINI_API_KEY=' "$ENV_FILE" | cut -d '=' -f2- || true)
+    FOUND_PORT=$(grep -E '^PORT=' "$ENV_FILE" | cut -d '=' -f2- || true)
+    if [ -n "$FOUND_PORT" ]; then
+        EXISTING_PORT="$FOUND_PORT"
+    fi
 fi
 
 USER_API_KEY="${GEMINI_API_KEY:-$EXISTING_KEY}"
@@ -178,19 +183,54 @@ if [ -z "$USER_API_KEY" ]; then
     USER_API_KEY="$INPUT_KEY"
 fi
 
+# Port prompt & configuration
+APP_PORT="${PORT:-$EXISTING_PORT}"
+echo ""
+echo -e "${YELLOW}================================================================${NC}"
+echo -e "${YELLOW}             WEB DASHBOARD PORT CONFIGURATION                   ${NC}"
+echo -e "${YELLOW}================================================================${NC}"
+echo "Current port setting is: $APP_PORT"
+read -rp "Enter web dashboard port [default: $APP_PORT]: " INPUT_PORT
+if [ -n "$INPUT_PORT" ]; then
+    APP_PORT="$INPUT_PORT"
+fi
+log_info "Configured dashboard to listen on port $APP_PORT."
+
 cat <<EOF > "$ENV_FILE"
 # AI Chess Coach Environment Configuration
 CHESS_USERNAME=Troy05x
 GEMINI_API_KEY=${USER_API_KEY}
 DATA_DIR=${DATA_DIR}
 STOCKFISH_PATH=${STOCKFISH_BIN}
-PORT=5000
+PORT=${APP_PORT}
 EOF
 
 # Restrict permissions to protect API key
 chmod 600 "$ENV_FILE"
 chown "$TARGET_USER:$TARGET_USER" "$ENV_FILE"
 log_success "Environment configuration saved securely to $ENV_FILE (chmod 600)."
+
+# ------------------------------------------------------------------------------
+# 6.1 UFW Firewall Configuration
+# ------------------------------------------------------------------------------
+log_info "Checking UFW (Uncomplicated Firewall)..."
+if command -v ufw >/dev/null 2>&1; then
+    echo ""
+    echo -e "${YELLOW}================================================================${NC}"
+    echo -e "${YELLOW}                  UFW FIREWALL DETECTED                         ${NC}"
+    echo -e "${YELLOW}================================================================${NC}"
+    read -rp "Allow incoming traffic on port $APP_PORT/tcp in UFW? [Y/n]: " ALLOW_UFW
+    ALLOW_UFW="${ALLOW_UFW:-Y}"
+    if [[ "$ALLOW_UFW" =~ ^[Yy]$ ]]; then
+        log_info "Opening port $APP_PORT/tcp in UFW..."
+        ufw allow "${APP_PORT}/tcp" comment "AI Chess Coach Web Dashboard"
+        log_success "Port $APP_PORT/tcp allowed in UFW."
+    else
+        log_warning "Skipping UFW port rule for port $APP_PORT. Ensure your firewall permits access."
+    fi
+else
+    log_info "UFW is not installed; skipping firewall rule creation."
+fi
 
 # ------------------------------------------------------------------------------
 # 7. Configure Systemd Background Service (Web App Dashboard)
@@ -260,7 +300,7 @@ echo ""
 echo -e "${GREEN}================================================================${NC}"
 echo -e "${GREEN}         AI CHESS COACH DEPLOYMENT COMPLETE!                     ${NC}"
 echo -e "${GREEN}================================================================${NC}"
-echo "Dashboard URL: http://<YOUR_SERVER_IP>:5000"
+echo "Dashboard URL: http://<YOUR_SERVER_IP>:${APP_PORT}"
 echo "Data Directory: $DATA_DIR"
 echo "Environment File: $ENV_FILE"
 echo "Cron Schedule: Daily at 04:00 AM"
