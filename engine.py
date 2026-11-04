@@ -30,8 +30,16 @@ import requests
 import chess
 import chess.pgn
 import chess.engine
-from google import genai
-from google.genai import types, errors
+
+try:
+    from google import genai
+    from google.genai import types, errors
+    GENAI_AVAILABLE = True
+except ImportError:
+    genai = None  # type: ignore
+    types = None  # type: ignore
+    errors = None  # type: ignore
+    GENAI_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(
@@ -519,6 +527,10 @@ def generate_gemini_report(
     Error Handling: Exponential backoff retries (2s, 4s, 8s) for 503 UNAVAILABLE / demand spikes.
     Offline Fallback: Gracefully generates offline markdown report if API key is missing or calls fail.
     """
+    if not GENAI_AVAILABLE:
+        logger.warning("google-genai SDK is not installed (requires Python >= 3.10). Generating fallback analytical report.")
+        return generate_offline_report(date_str, username, daily_stats, game_analyses, historical_stats)
+
     clean_key = (api_key or "").strip().strip("'\"")
     if not clean_key:
         logger.warning("No GEMINI_API_KEY provided. Generating fallback analytical report.")

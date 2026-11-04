@@ -118,6 +118,44 @@ apt-get install -y --no-install-recommends \
     curl \
     ca-certificates
 
+# Check Python version; google-genai and modern Gemini APIs require Python >= 3.10
+PYTHON_BIN="python3"
+SYS_PY_MAJOR=$($PYTHON_BIN -c "import sys; print(sys.version_info.major)" 2>/dev/null || echo "0")
+SYS_PY_MINOR=$($PYTHON_BIN -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo "0")
+
+if [ "$SYS_PY_MAJOR" -lt 3 ] || { [ "$SYS_PY_MAJOR" -eq 3 ] && [ "$SYS_PY_MINOR" -lt 10 ]; }; then
+    log_warning "Default system Python ($SYS_PY_MAJOR.$SYS_PY_MINOR) is below 3.10. google-genai requires Python >= 3.10."
+
+    # Check if a newer python binary already exists
+    FOUND_ALT_PY=""
+    for py_candidate in python3.12 python3.11 python3.10; do
+        if command -v "$py_candidate" >/dev/null 2>&1; then
+            FOUND_ALT_PY="$py_candidate"
+            break
+        fi
+    done
+
+    if [ -n "$FOUND_ALT_PY" ]; then
+        PYTHON_BIN="$FOUND_ALT_PY"
+        log_info "Found existing modern Python binary: $PYTHON_BIN"
+    else
+        # On Ubuntu 20.04 (Focal) or Debian-based systems, offer/install python3.10 via deadsnakes PPA
+        if [ "${ID:-}" = "ubuntu" ]; then
+            log_info "Installing Python 3.10 via deadsnakes PPA for Ubuntu ${VERSION_ID:-}..."
+            apt-get install -y --no-install-recommends software-properties-common || true
+            add-apt-repository -y ppa:deadsnakes/ppa || true
+            apt-get update -y || true
+            apt-get install -y --no-install-recommends python3.10 python3.10-venv python3.10-distutils || true
+            if command -v python3.10 >/dev/null 2>&1; then
+                PYTHON_BIN="python3.10"
+                log_success "Successfully installed Python 3.10 ($PYTHON_BIN)."
+            else
+                log_warning "Could not automatically install Python 3.10. Falling back to default python3."
+            fi
+        fi
+    fi
+fi
+
 # Verify stockfish binary location
 STOCKFISH_BIN="$(which stockfish || true)"
 if [ -z "$STOCKFISH_BIN" ]; then
@@ -138,16 +176,27 @@ log_success "Stockfish installed at: $STOCKFISH_BIN"
 # 5. Setup Python Virtual Environment and Install Dependencies
 # ------------------------------------------------------------------------------
 VENV_DIR="$APP_DIR/venv"
-log_info "Setting up Python virtual environment at $VENV_DIR..."
-python3 -m venv "$VENV_DIR"
+log_info "Setting up Python virtual environment at $VENV_DIR using $PYTHON_BIN..."
+$PYTHON_BIN -m venv "$VENV_DIR"
 
 log_info "Installing Python dependencies inside virtual environment..."
 "$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel || true
 
 # Install requirements
+VENV_PY_MAJOR=$("$VENV_DIR/bin/python3" -c "import sys; print(sys.version_info.major)" 2>/dev/null || echo "0")
+VENV_PY_MINOR=$("$VENV_DIR/bin/python3" -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo "0")
+
 if ! "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"; then
     log_warning "Pip encountered an issue with one or more packages in requirements.txt. Retrying installation..."
-    "$VENV_DIR/bin/pip" install "python-chess>=1.999" "requests>=2.25.0" "Flask>=2.0.0" "markdown>=3.3.0" "google-genai>=0.1.1"
+    "$VENV_DIR/bin/pip" install "python-chess>=1.999" "requests>=2.25.0" "Flask>=2.0.0" "markdown>=3.3.0"
+    if [ "$VENV_PY_MAJOR" -gt 3 ] || { [ "$VENV_PY_MAJOR" -eq 3 ] && [ "$VENV_PY_MINOR" -ge 10 ]; }; then
+        "$VENV_DIR/bin/pip" install "google-genai>=0.1.1" || log_warning "Failed to install google-genai; falling back to offline reports."
+    fi
+fi
+
+if [ "$VENV_PY_MAJOR" -lt 3 ] || { [ "$VENV_PY_MAJOR" -eq 3 ] && [ "$VENV_PY_MINOR" -lt 10 ]; }; then
+    log_warning "Virtual environment Python is $VENV_PY_MAJOR.$VENV_PY_MINOR (< 3.10). google-genai SDK requires Python >= 3.10."
+    log_warning "The application will run normally in offline coaching report mode."
 fi
 chown -R "$TARGET_USER:$TARGET_USER" "$VENV_DIR"
 
