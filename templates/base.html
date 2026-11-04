@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AI Chess Coach{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Minimalist Chart.js from CDN for blunder trends -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <header class="navbar">
+        <div class="nav-container">
+            <a href="/" class="brand-logo">
+                <span class="chess-icon">♞</span>
+                <span class="brand-text">AI Chess Coach <small class="user-badge">{{ username }}</small></span>
+            </a>
+            <nav class="nav-links">
+                <a href="/" class="nav-item {% if request.path == '/' %}active{% endif %}">Dashboard</a>
+                <a href="/reports" class="nav-item {% if '/reports' in request.path %}active{% endif %}">Daily Reports</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-content">
+            <p>Self-Hosted AI Chess Coach &bull; Engine: Stockfish 16 + Gemini 2.5 Flash &bull; Low-RAM Optimized</p>
+        </div>
+    </footer>
+</body>
+</html>

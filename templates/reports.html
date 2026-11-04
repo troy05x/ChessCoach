@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Daily Reports &bull; AI Chess Coach{% endblock %}
+
+{% block content %}
+<div class="dashboard-header">
+    <div>
+        <h1 class="page-title">Historical Daily Reports</h1>
+        <p class="page-subtitle">Chronological archive of AI-generated coaching telemetry and training plans.</p>
+    </div>
+    <div class="header-action">
+        <div class="btn-group">
+            <a href="/reports?sort=asc" class="btn {% if sort_order == 'asc' %}btn-primary{% else %}btn-outline{% endif %}">Oldest First</a>
+            <a href="/reports?sort=desc" class="btn {% if sort_order == 'desc' %}btn-primary{% else %}btn-outline{% endif %}">Newest First</a>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Status</th>
+                    <th>Games Analyzed</th>
+                    <th>Record (W / L / D)</th>
+                    <th>Blunders (>200cp)</th>
+                    <th>Mistakes (>100cp)</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in reports %}
+                <tr>
+                    <td><strong>{{ r.date }}</strong></td>
+                    <td>
+                        {% if r.total_games > 0 %}
+                            <span class="badge badge-success">Analyzed</span>
+                        {% else %}
+                            <span class="badge badge-muted">No Games</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ r.total_games }}</td>
+                    <td>{{ r.wins }}W / {{ r.losses }}L / {{ r.draws }}D</td>
+                    <td><span class="badge-count text-danger">{{ r.blunders }}</span></td>
+                    <td><span class="badge-count text-warning">{{ r.mistakes }}</span></td>
+                    <td>
+                        {% if r.exists %}
+                            <a href="/reports/{{ r.date }}" class="btn btn-sm btn-primary">Read Coaching Report &rarr;</a>
+                        {% else %}
+                            <span class="text-muted">No Report File</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="text-center text-muted">No daily reports recorded yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard &bull; AI Chess Coach ({{ username }}){% endblock %}
+
+{% block content %}
+<div class="dashboard-header">
+    <div>
+        <h1 class="page-title">Grandmaster Telemetry Dashboard</h1>
+        <p class="page-subtitle">Multi-platform game analysis, macro blunder patterns, and rolling weekly/monthly trends for <strong>{{ username }}</strong>.</p>
+    </div>
+    <div class="header-action">
+        <a href="/reports" class="btn btn-primary">Browse All Reports &rarr;</a>
+    </div>
+</div>
+
+<!-- Stat Highlights -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Total Games</div>
+        <div class="stat-value">{{ total_games }}</div>
+        <div class="stat-subtext">Record: {{ total_wins }}W / {{ total_losses }}L / {{ total_draws }}D</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Win Rate</div>
+        <div class="stat-value text-accent">{{ win_rate }}%</div>
+        <div class="stat-subtext">Across Chess.com & Lichess</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Blunders (>200 cp)</div>
+        <div class="stat-value text-danger">{{ total_blunders }}</div>
+        <div class="stat-subtext">Avg: {{ '%.1f'|format(total_blunders / (total_games if total_games > 0 else 1)) }} per game</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Mistakes (>100 cp)</div>
+        <div class="stat-value text-warning">{{ total_mistakes }}</div>
+        <div class="stat-subtext">Avg: {{ '%.1f'|format(total_mistakes / (total_games if total_games > 0 else 1)) }} per game</div>
+    </div>
+</div>
+
+<!-- Rolling Macro Patterns (7-day and 30-day) -->
+<section class="section">
+    <h2 class="section-title">Macro Pattern Recognition & Periodical Feedback</h2>
+    <div class="trends-split">
+        <!-- 7-Day Feedback Card -->
+        <div class="card trend-card">
+            <div class="card-header">
+                <h3>7-Day Rolling Feedback</h3>
+                <span class="badge badge-info">Weekly</span>
+            </div>
+            <div class="card-body">
+                <div class="pattern-metric-row">
+                    <span>Games Played:</span>
+                    <strong>{{ patterns_7d.total_games }}</strong>
+                </div>
+                <div class="pattern-metric-row">
+                    <span>Blunders Recorded:</span>
+                    <strong class="text-danger">{{ patterns_7d.blunders }}</strong>
+                </div>
+                <div class="pattern-metric-row">
+                    <span>Inaccuracies / Mistakes:</span>
+                    <strong class="text-warning">{{ patterns_7d.mistakes }}</strong>
+                </div>
+
+                <h4 class="subhead">Mistake Breakdown by Game Phase</h4>
+                <div class="phase-bars">
+                    {% for phase, count in patterns_7d.phases.items() %}
+                    <div class="phase-item">
+                        <span class="phase-name">{{ phase }}</span>
+                        <div class="bar-container">
+                            <div class="bar-fill" style="width: {{ [count * 5, 100]|min }}%;"></div>
+                        </div>
+                        <span class="phase-count">{{ count }}</span>
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No mistake events recorded in the last 7 days.</p>
+                    {% endfor %}
+                </div>
+
+                <h4 class="subhead">Most Frequent Culprit Pieces</h4>
+                <div class="pieces-tags">
+                    {% for piece, count in patterns_7d.pieces.items() %}
+                        <span class="tag">{{ piece }}: <strong>{{ count }}</strong></span>
+                    {% else %}
+                        <span class="text-muted">No piece error data available.</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 30-Day Feedback Card -->
+        <div class="card trend-card">
+            <div class="card-header">
+                <h3>30-Day Rolling Feedback</h3>
+                <span class="badge badge-success">Monthly</span>
+            </div>
+            <div class="card-body">
+                <div class="pattern-metric-row">
+                    <span>Games Played:</span>
+                    <strong>{{ patterns_30d.total_games }}</strong>
+                </div>
+                <div class="pattern-metric-row">
+                    <span>Blunders Recorded:</span>
+                    <strong class="text-danger">{{ patterns_30d.blunders }}</strong>
+                </div>
+                <div class="pattern-metric-row">
+                    <span>Inaccuracies / Mistakes:</span>
+                    <strong class="text-warning">{{ patterns_30d.mistakes }}</strong>
+                </div>
+
+                <h4 class="subhead">Long-Term Phase Breakdown</h4>
+                <div class="phase-bars">
+                    {% for phase, count in patterns_30d.phases.items() %}
+                    <div class="phase-item">
+                        <span class="phase-name">{{ phase }}</span>
+                        <div class="bar-container">
+                            <div class="bar-fill" style="width: {{ [count * 3, 100]|min }}%;"></div>
+                        </div>
+                        <span class="phase-count">{{ count }}</span>
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No mistake events recorded in the last 30 days.</p>
+                    {% endfor %}
+                </div>
+
+                <h4 class="subhead">Long-Term Culprit Pieces</h4>
+                <div class="pieces-tags">
+                    {% for piece, count in patterns_30d.pieces.items() %}
+                        <span class="tag">{{ piece }}: <strong>{{ count }}</strong></span>
+                    {% else %}
+                        <span class="text-muted">No piece error data available.</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Trend Chart -->
+<section class="section">
+    <div class="card">
+        <div class="card-header">
+            <h3>Recent Blunder & Mistake Velocity</h3>
+        </div>
+        <div class="card-body">
+            <div style="height: 280px; width: 100%;">
+                <canvas id="blunderTrendChart"></canvas>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Recent Matches Analyzed -->
+<section class="section">
+    <div class="card">
+        <div class="card-header">
+            <h3>Recent Matches Analyzed</h3>
+        </div>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Platform</th>
+                        <th>Opponent</th>
+                        <th>Color</th>
+                        <th>Opening</th>
+                        <th>Result</th>
+                        <th>Blunders</th>
+                        <th>Mistakes</th>
+                        <th>Game Link</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for g in recent_games %}
+                    <tr>
+                        <td><strong>{{ g.date }}</strong></td>
+                        <td><span class="badge badge-platform {{ g.platform }}">{{ g.platform }}</span></td>
+                        <td>{{ g.opponent }}</td>
+                        <td>{{ g.user_color }}</td>
+                        <td class="text-truncate" style="max-width: 140px;">{{ g.opening }}</td>
+                        <td>
+                            {% if g.result == 'Win' %}
+                                <span class="badge badge-success">Win</span>
+                            {% elif g.result == 'Loss' %}
+                                <span class="badge badge-danger">Loss</span>
+                            {% else %}
+                                <span class="badge badge-muted">Draw</span>
+                            {% endif %}
+                        </td>
+                        <td><span class="badge-count text-danger">{{ g.blunders_count }}</span></td>
+                        <td><span class="badge-count text-warning">{{ g.mistakes_count }}</span></td>
+                        <td>
+                            {% if g.pgn_url %}
+                                <a href="{{ g.pgn_url }}" target="_blank" rel="noopener noreferrer" class="link-external">View Match &nearr;</a>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center text-muted">No analyzed games found yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const ctx = document.getElementById('blunderTrendChart').getContext('2d');
+        const labels = {{ chart_dates|tojson }};
+        const blunders = {{ chart_blunders|tojson }};
+        const mistakes = {{ chart_mistakes|tojson }};
+        const games = {{ chart_games|tojson }};
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Blunders (>200cp)',
+                        data: blunders,
+                        backgroundColor: '#ef4444',
+                        borderRadius: 4
+                    },
+                    {
+                        label: 'Mistakes (>100cp)',
+                        data: mistakes,
+                        backgroundColor: '#f59e0b',
+                        borderRadius: 4
+                    },
+                    {
+                        label: 'Games Played',
+                        data: games,
+                        backgroundColor: '#6366f1',
+                        borderRadius: 4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        grid: { display: false }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { stepSize: 1 }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { boxWidth: 12, font: { size: 12 } }
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}

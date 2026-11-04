@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Report: {{ date_str }} &bull; AI Chess Coach{% endblock %}
+
+{% block content %}
+<div class="report-nav-header">
+    <a href="/reports" class="btn btn-outline">&larr; Back to Historical Reports</a>
+    <span class="report-date-badge">{{ date_str }}</span>
+</div>
+
+{% if summary %}
+<div class="summary-banner">
+    <div class="banner-item">
+        <span class="banner-label">Games Analyzed</span>
+        <span class="banner-value">{{ summary.total_games }}</span>
+    </div>
+    <div class="banner-item">
+        <span class="banner-label">Record</span>
+        <span class="banner-value">{{ summary.wins }}W - {{ summary.losses }}L - {{ summary.draws }}D</span>
+    </div>
+    <div class="banner-item">
+        <span class="banner-label">Blunders (>200cp)</span>
+        <span class="banner-value text-danger">{{ summary.total_blunders }}</span>
+    </div>
+    <div class="banner-item">
+        <span class="banner-label">Mistakes (>100cp)</span>
+        <span class="banner-value text-warning">{{ summary.total_mistakes }}</span>
+    </div>
+    <div class="banner-item">
+        <span class="banner-label">Avg Centipawn Loss</span>
+        <span class="banner-value">{{ summary.avg_cp_loss }} cp</span>
+    </div>
+</div>
+{% endif %}
+
+<article class="card report-card">
+    <div class="markdown-body">
+        {{ html_content|safe }}
+    </div>
+</article>
+{% endblock %}
