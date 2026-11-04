@@ -90,7 +90,35 @@ The application automatically retrieves all chess matches played yesterday by **
    - Chronological archive of historical reports (sortable oldest-to-newest or newest-to-oldest) rendering formatted Markdown reports.
 
 6. **Hands-Off Automated Production Deployment:**
-   - `install.sh` handles end-to-end setup with pre-flight checks, dependency installation, persistent directory permissions (no need to grant permissions repeatedly), systemd background service creation, and 04:00 AM daily cron scheduling.
+   - `install.sh` handles end-to-end setup with pre-flight checks, dependency installation, persistent directory permissions (no need to grant permissions repeatedly), systemd background service creation, UFW / OCI iptables firewall configuration, and 04:00 AM daily cron scheduling.
+
+---
+
+## Oracle Cloud Infrastructure (OCI) Firewall & Networking
+
+If you are hosting this application on an **Oracle Cloud (OCI)** Ubuntu instance, please be aware that connection issues on port 5000 typically stem from two firewall layers:
+
+### 1. OS-Level Firewall (iptables & UFW)
+Standard OCI Ubuntu images include a default `iptables` rule with `REJECT` on all incoming ports except port 22. Even if UFW allows port 5000, iptables can block it.
+To fix this instantly, `install.sh` automatically configures both UFW and iptables, or you can run:
+```bash
+sudo iptables -I INPUT 1 -p tcp --dport 5000 -m state --state NEW,ESTABLISHED -j ACCEPT
+sudo netfilter-persistent save
+# If UFW is enabled:
+sudo ufw allow 5000/tcp
+```
+
+### 2. OCI Cloud Console (Security List / Network Security Group)
+OCI blocks all incoming ports in the Virtual Cloud Network (VCN) by default. You must add an Ingress Rule in the OCI Console:
+1. Navigate to: **Networking** &rarr; **Virtual Cloud Networks (VCN)** &rarr; Your VCN &rarr; **Security Lists** &rarr; **Default Security List**.
+2. Click **Add Ingress Rules**:
+   - **Stateless:** No (leave unchecked)
+   - **Source CIDR:** `0.0.0.0/0`
+   - **IP Protocol:** `TCP`
+   - **Source Port Range:** All
+   - **Destination Port Range:** `5000`
+   - **Description:** `AI Chess Coach Web Dashboard`
+3. Click **Add Ingress Rules**. The dashboard will immediately become reachable at `http://<YOUR_INSTANCE_PUBLIC_IP>:5000`.
 
 ---
 

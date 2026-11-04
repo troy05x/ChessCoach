@@ -211,13 +211,15 @@ chown "$TARGET_USER:$TARGET_USER" "$ENV_FILE"
 log_success "Environment configuration saved securely to $ENV_FILE (chmod 600)."
 
 # ------------------------------------------------------------------------------
-# 6.1 UFW Firewall Configuration
+# 6.1 Firewall Configuration (UFW and Oracle Cloud OCI iptables)
 # ------------------------------------------------------------------------------
-log_info "Checking UFW (Uncomplicated Firewall)..."
+log_info "Configuring host firewalls for port $APP_PORT/tcp..."
+
+# 1. UFW Firewall
 if command -v ufw >/dev/null 2>&1; then
     echo ""
     echo -e "${YELLOW}================================================================${NC}"
-    echo -e "${YELLOW}                  UFW FIREWALL DETECTED                         ${NC}"
+    echo -e "${YELLOW}                  UFW FIREWALL CONFIGURATION                    ${NC}"
     echo -e "${YELLOW}================================================================${NC}"
     read -rp "Allow incoming traffic on port $APP_PORT/tcp in UFW? [Y/n]: " ALLOW_UFW
     ALLOW_UFW="${ALLOW_UFW:-Y}"
@@ -229,7 +231,32 @@ if command -v ufw >/dev/null 2>&1; then
         log_warning "Skipping UFW port rule for port $APP_PORT. Ensure your firewall permits access."
     fi
 else
-    log_info "UFW is not installed; skipping firewall rule creation."
+    log_info "UFW is not installed; skipping UFW rule creation."
+fi
+
+# 2. Oracle Cloud Infrastructure (OCI) OS-level iptables fix
+# Note: Ubuntu images provided by Oracle Cloud (OCI) ship with restrictive default
+# iptables rules that REJECT all incoming traffic except SSH (port 22) in the INPUT chain.
+# Even when UFW is enabled or reloaded, the underlying OCI iptables REJECT rule takes precedence!
+if command -v iptables >/dev/null 2>&1; then
+    # Check if a reject rule exists in INPUT chain
+    if iptables -L INPUT -n --line-numbers 2>/dev/null | grep -qi "reject"; then
+        log_info "Detected active REJECT rule in iptables INPUT chain (common in Oracle Cloud OCI images)."
+        log_info "Adding explicit ACCEPT rule for port $APP_PORT/tcp at top of iptables INPUT chain..."
+
+        # Check if rule already exists to avoid duplicates
+        if ! iptables -C INPUT -p tcp --dport "$APP_PORT" -j ACCEPT 2>/dev/null; then
+            iptables -I INPUT 1 -p tcp --dport "$APP_PORT" -m state --state NEW,ESTABLISHED -j ACCEPT
+            log_success "Inserted ACCEPT rule for port $APP_PORT into iptables INPUT chain."
+        fi
+
+        # Persist iptables rules across reboots if iptables-persistent or netfilter-persistent is available
+        if command -v netfilter-persistent >/dev/null 2>&1; then
+            netfilter-persistent save || true
+        elif [ -f /etc/iptables/rules.v4 ]; then
+            iptables-save > /etc/iptables/rules.v4 || true
+        fi
+    fi
 fi
 
 # ------------------------------------------------------------------------------
@@ -310,4 +337,14 @@ echo "  Check dashboard service: sudo systemctl status chess-coach"
 echo "  Restart dashboard:       sudo systemctl restart chess-coach"
 echo "  Run analyzer manually:   sudo -u $TARGET_USER /usr/bin/env bash -c 'set -a; . /etc/chess-coach.env; set +a; $VENV_DIR/bin/python3 $APP_DIR/engine.py'"
 echo "  View cron logs:          cat $DATA_DIR/cron_engine.log"
+echo ""
+echo -e "${YELLOW}IMPORTANT NOTE FOR ORACLE CLOUD (OCI) USERS:${NC}"
+echo "In OCI, there are TWO layers of firewalls:"
+echo "1. Host OS firewall: UFW and iptables rules have been configured by this script."
+echo "2. OCI Cloud Console (Security List / Network Security Group):"
+echo "   You MUST also add an Ingress Rule in your OCI VCN -> Security Lists:"
+echo "   - Stateless: No"
+echo "   - Source CIDR: 0.0.0.0/0"
+echo "   - IP Protocol: TCP"
+echo "   - Destination Port Range: ${APP_PORT}"
 echo ""
