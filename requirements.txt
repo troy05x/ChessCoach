@@ -4,6 +4,5 @@ python-chess>=1.999
 requests>=2.25.0
 Flask>=2.0.0
 markdown>=3.3.0
-# Note: Gemini 2.5 Flash API is called directly via lightweight HTTP REST (using requests)
-# with zero external SDK overhead. google-genai is optionally supported if installed.
-google-genai>=0.1.1; python_version >= "3.11"
+# Official modern Google GenAI SDK for Gemini 3.8 Flash
+google-genai>=0.1.1

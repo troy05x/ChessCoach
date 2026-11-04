@@ -5,6 +5,9 @@ import sqlite3
 import datetime
 import chess
 
+from unittest.mock import MagicMock, patch
+from google.genai import errors, types
+
 from engine import (
     init_db,
     determine_phase,
@@ -12,6 +15,8 @@ from engine import (
     generate_no_games_report,
     save_report_and_db,
     get_historical_pattern_stats,
+    generate_gemini_report,
+    generate_offline_report,
     STOCKFISH_PATH
 )
 import app
@@ -132,6 +137,123 @@ class TestEngineAndApp(unittest.TestCase):
         hist_stats = get_historical_pattern_stats(self.db_path)
         self.assertIn("last_7_days", hist_stats)
         self.assertIn("last_30_days", hist_stats)
+
+    def test_generate_gemini_report_success(self):
+        daily_stats = {"total_games": 1, "wins": 1, "losses": 0, "draws": 0, "mistakes": 0, "blunders": 0, "avg_cp_loss": 10.0}
+        game_analyses = []
+        historical_stats = {"last_7_days": {}, "last_30_days": {}}
+
+        mock_response = MagicMock()
+        mock_response.text = "# Grandmaster AI Coaching Report\n\nGenerated Successfully."
+
+        with patch("engine.genai.Client") as mock_client_cls:
+            mock_client_instance = MagicMock()
+            mock_client_cls.return_value = mock_client_instance
+            mock_client_instance.models.generate_content.return_value = mock_response
+
+            report = generate_gemini_report(
+                date_str="2026-11-03",
+                username="Troy05x",
+                daily_stats=daily_stats,
+                game_analyses=game_analyses,
+                historical_stats=historical_stats,
+                api_key="test-api-key"
+            )
+
+            mock_client_cls.assert_called_once_with(api_key="test-api-key")
+            mock_client_instance.models.generate_content.assert_called_once()
+            call_kwargs = mock_client_instance.models.generate_content.call_args.kwargs
+
+            self.assertEqual(call_kwargs["model"], "gemini-3.8-flash")
+            config = call_kwargs["config"]
+            self.assertIsInstance(config, types.GenerateContentConfig)
+            self.assertEqual(config.thinking_config.thinking_level, "MEDIUM")
+            # Verify no deprecated or unsupported parameters are set
+            self.assertIsNone(config.temperature)
+            self.assertIsNone(config.top_p)
+            self.assertIsNone(config.top_k)
+            self.assertIsNone(config.candidate_count)
+            self.assertIsNone(config.frequency_penalty)
+            self.assertIsNone(config.presence_penalty)
+            self.assertEqual(report, "# Grandmaster AI Coaching Report\n\nGenerated Successfully.")
+
+    def test_generate_gemini_report_retry_on_503(self):
+        daily_stats = {"total_games": 1, "wins": 1, "losses": 0, "draws": 0, "mistakes": 0, "blunders": 0, "avg_cp_loss": 10.0}
+        game_analyses = []
+        historical_stats = {"last_7_days": {}, "last_30_days": {}}
+
+        api_err_503 = errors.APIError(code=503, response_json={"error": {"message": "Service Unavailable / High Demand"}})
+        mock_success = MagicMock()
+        mock_success.text = "# Report after retry"
+
+        with patch("engine.genai.Client") as mock_client_cls, \
+             patch("engine.time.sleep") as mock_sleep:
+            mock_client_instance = MagicMock()
+            mock_client_cls.return_value = mock_client_instance
+            # Fail twice with 503, then succeed on 3rd attempt
+            mock_client_instance.models.generate_content.side_effect = [
+                api_err_503,
+                api_err_503,
+                mock_success
+            ]
+
+            report = generate_gemini_report(
+                date_str="2026-11-03",
+                username="Troy05x",
+                daily_stats=daily_stats,
+                game_analyses=game_analyses,
+                historical_stats=historical_stats,
+                api_key="test-api-key"
+            )
+
+            self.assertEqual(report, "# Report after retry")
+            self.assertEqual(mock_client_instance.models.generate_content.call_count, 3)
+            self.assertEqual(mock_sleep.call_count, 2)
+            mock_sleep.assert_any_call(2)
+            mock_sleep.assert_any_call(4)
+
+    def test_generate_gemini_report_offline_fallback_missing_key(self):
+        daily_stats = {"total_games": 0, "wins": 0, "losses": 0, "draws": 0, "mistakes": 0, "blunders": 0, "avg_cp_loss": 0.0}
+        game_analyses = []
+        historical_stats = {"last_7_days": {}, "last_30_days": {}}
+
+        report = generate_gemini_report(
+            date_str="2026-11-03",
+            username="Troy05x",
+            daily_stats=daily_stats,
+            game_analyses=game_analyses,
+            historical_stats=historical_stats,
+            api_key=""
+        )
+
+        self.assertIn("Executive Performance Overview", report)
+        self.assertIn("Recurring Macro Patterns & Psychological Blindspots", report)
+
+    def test_generate_gemini_report_offline_fallback_persistent_failure(self):
+        daily_stats = {"total_games": 0, "wins": 0, "losses": 0, "draws": 0, "mistakes": 0, "blunders": 0, "avg_cp_loss": 0.0}
+        game_analyses = []
+        historical_stats = {"last_7_days": {}, "last_30_days": {}}
+
+        api_err_503 = errors.APIError(code=503, response_json={"error": {"message": "Service Unavailable / High Demand"}})
+
+        with patch("engine.genai.Client") as mock_client_cls, \
+             patch("engine.time.sleep"):
+            mock_client_instance = MagicMock()
+            mock_client_cls.return_value = mock_client_instance
+            mock_client_instance.models.generate_content.side_effect = api_err_503
+
+            report = generate_gemini_report(
+                date_str="2026-11-03",
+                username="Troy05x",
+                daily_stats=daily_stats,
+                game_analyses=game_analyses,
+                historical_stats=historical_stats,
+                api_key="test-api-key"
+            )
+
+            self.assertEqual(mock_client_instance.models.generate_content.call_count, 3)
+            self.assertIn("Executive Performance Overview", report)
+            self.assertIn("Recurring Macro Patterns & Psychological Blindspots", report)
 
     def test_flask_endpoints(self):
         client = app.app.test_client()

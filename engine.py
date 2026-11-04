@@ -9,7 +9,7 @@ Features:
   (1 thread, 16MB hash memory, 0.03s max evaluation time per move).
 - Extracts moves where user centipawn loss > 100 (mistakes) or > 200 (blunders).
 - Records phase of game (Opening/Middlegame/Endgame), piece moved, opponent, result.
-- Packages daily telemetry and historical context into Gemini 2.5 Flash prompt via `google-genai`.
+- Packages daily telemetry and historical context into Gemini 3.8 Flash prompt via `google-genai`.
 - Generates structured Markdown report saved to /data/reports/YYYY-MM-DD.md.
 - Updates SQLite database /data/chess_coach.db with game summaries, blunder records,
   and provides historical rolling context (7-day and 30-day patterns).
@@ -25,10 +25,13 @@ import io
 import shutil
 from typing import List, Dict, Any, Optional, Tuple
 
+import time
 import requests
 import chess
 import chess.pgn
 import chess.engine
+from google import genai
+from google.genai import types, errors
 
 # Configure logging
 logging.basicConfig(
@@ -509,12 +512,15 @@ def generate_gemini_report(
     api_key: str = GEMINI_API_KEY
 ) -> str:
     """
-    Sends structured chess telemetry and pattern data to Google Gemini 2.5 Flash
-    to generate an actionable macro coaching report.
-    Supports both official `google-genai` SDK and zero-dependency lightweight REST API
-    (ensuring full compatibility across all Python versions, including Python 3.8 on Ubuntu 20.04).
+    Sends structured chess telemetry and pattern data to Google Gemini 3.8 Flash
+    via the official `google-genai` Python SDK to generate an actionable macro coaching report.
+    Target Model: gemini-3.8-flash
+    Configuration: thinking_level="MEDIUM", no deprecated parameters.
+    Error Handling: Exponential backoff retries (2s, 4s, 8s) for 503 UNAVAILABLE / demand spikes.
+    Offline Fallback: Gracefully generates offline markdown report if API key is missing or calls fail.
     """
-    if not api_key:
+    clean_key = (api_key or "").strip().strip("'\"")
+    if not clean_key:
         logger.warning("No GEMINI_API_KEY provided. Generating fallback analytical report.")
         return generate_offline_report(date_str, username, daily_stats, game_analyses, historical_stats)
 
@@ -600,99 +606,67 @@ You MUST include these exact main sections (using H2 ## headers):
 Provide direct, actionable, coach-grade advice. Keep formatting sharp with bullet points and bold emphasis.
 """
 
-    clean_key = api_key.strip().strip("'\"")
-    # Candidate models in priority order
-    candidate_models = [GEMINI_MODEL]
-    for fallback in ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
-        if fallback not in candidate_models:
-            candidate_models.append(fallback)
+    model_id = "gemini-3.8-flash"
+    retry_delays = [2, 4, 8]
+    max_attempts = len(retry_delays)
 
-    # Method 1: Try google-genai SDK if available in current Python environment
     try:
-        from google import genai
+        # Instantiate the client using client = genai.Client()
         client = genai.Client(api_key=clean_key)
-        for model_name in candidate_models:
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            thinking_config=types.ThinkingConfig(
+                thinking_level="MEDIUM"
+            )
+        )
+
+        for attempt in range(1, max_attempts + 1):
             try:
+                logger.info(f"Generating coaching report with {model_id} (attempt {attempt}/{max_attempts})...")
                 response = client.models.generate_content(
-                    model=model_name,
+                    model=model_id,
                     contents=user_prompt,
-                    config={
-                        "system_instruction": system_instruction,
-                        "temperature": 0.3,
-                    }
+                    config=config
                 )
                 if response and response.text:
-                    logger.info(f"Successfully generated coaching report via google-genai SDK using {model_name}.")
+                    logger.info(f"Successfully generated coaching report via google-genai SDK using {model_id}.")
                     return response.text
-            except Exception as model_err:
-                logger.warning(f"google-genai SDK attempt with {model_name} failed: {model_err}")
-                continue
-    except ImportError:
-        logger.info("google-genai SDK not installed; using direct lightweight Gemini REST API.")
-    except Exception as e:
-        logger.warning(f"google-genai SDK initialization failed ({e}); attempting direct REST API...")
-
-    # Method 2: Direct HTTP REST call to Gemini Flash API via requests
-    # Fully compatible with Python 3.8+ on Ubuntu 20.04 with zero SDK dependencies
-    try:
-        rest_body = {
-            "system_instruction": {
-                "parts": [{"text": system_instruction}]
-            },
-            "contents": [
-                {
-                    "parts": [{"text": user_prompt}]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.3
-            }
-        }
-
-        # Generous timeout (120s) to give Gemini Flash sufficient time to generate long markdown reports
-        import time
-        for model_name in candidate_models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={clean_key}"
-            for attempt in range(1, 3):
-                try:
-                    logger.info(f"Calling Gemini REST API for {model_name} (attempt {attempt}/2, timeout=120s)...")
-                    resp = requests.post(
-                        url,
-                        json=rest_body,
-                        headers={"Content-Type": "application/json"},
-                        timeout=120
-                    )
-                    if resp.status_code == 200:
-                        result = resp.json()
-                        candidates = result.get("candidates", [])
-                        if candidates:
-                            parts = candidates[0].get("content", {}).get("parts", [])
-                            text_parts = [p.get("text", "") for p in parts if "text" in p]
-                            report_text = "".join(text_parts).strip()
-                            if report_text:
-                                logger.info(f"Successfully generated coaching report via direct Gemini REST API ({model_name}).")
-                                return report_text
-                    elif resp.status_code == 400 and "API_KEY_INVALID" in resp.text:
-                        logger.error(
-                            "Gemini API Error: The provided GEMINI_API_KEY is invalid. "
-                            "Please obtain a valid API key from https://aistudio.google.com/apikey and update /etc/chess-coach.env."
-                        )
-                        return generate_offline_report(date_str, username, daily_stats, game_analyses, historical_stats)
-                    elif resp.status_code == 404:
-                        logger.warning(f"Model {model_name} returned 404; trying next candidate model...")
-                        break
-                    else:
-                        logger.warning(f"Gemini REST API returned status {resp.status_code} on attempt {attempt}: {resp.text}")
-                except requests.exceptions.Timeout:
-                    logger.warning(f"Gemini REST API request timed out on attempt {attempt} for {model_name}.")
-                    if attempt < 2:
-                        time.sleep(2)
-                except Exception as req_err:
-                    logger.warning(f"Gemini REST API request failed on attempt {attempt} for {model_name}: {req_err}")
-                    if attempt < 2:
-                        time.sleep(2)
-    except Exception as e:
-        logger.error(f"Direct Gemini REST API unexpected failure: {e}")
+                else:
+                    logger.warning(f"Empty response received from {model_id} on attempt {attempt}.")
+            except errors.APIError as api_err:
+                status_code = getattr(api_err, "code", None)
+                err_msg = str(api_err)
+                is_transient = (
+                    status_code in (503, 500, 504, 429)
+                    or "UNAVAILABLE" in err_msg.upper()
+                    or "HIGH DEMAND" in err_msg.upper()
+                    or "RESOURCE_EXHAUSTED" in err_msg.upper()
+                )
+                if is_transient and attempt < max_attempts:
+                    delay = retry_delays[attempt - 1]
+                    logger.warning(f"Transient error on {model_id} (code={status_code}): {err_msg}. Retrying in {delay}s...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Gemini API error on {model_id} (code={status_code}): {err_msg}")
+                    break
+            except Exception as e:
+                err_msg = str(e)
+                is_transient = (
+                    "503" in err_msg
+                    or "UNAVAILABLE" in err_msg.upper()
+                    or "HIGH DEMAND" in err_msg.upper()
+                )
+                if is_transient and attempt < max_attempts:
+                    delay = retry_delays[attempt - 1]
+                    logger.warning(f"Encountered temporary demand spike / error: {err_msg}. Retrying in {delay}s...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Unexpected error calling {model_id}: {e}")
+                    break
+    except Exception as init_err:
+        logger.error(f"Failed to initialize or run google-genai Client: {init_err}")
 
     # Fallback to local offline template if API key is invalid or unreachable
     logger.info("Falling back to offline analytical report.")
@@ -970,7 +944,7 @@ def run_pipeline(target_date: Optional[datetime.date] = None) -> None:
     historical_stats = get_historical_pattern_stats()
 
     # 4. Generate Gemini coaching report
-    update_status("running", "Synthesizing coaching report via Google Gemini 2.5 Flash...", 85)
+    update_status("running", "Synthesizing coaching report via Google Gemini 3.8 Flash...", 85)
     report_content = generate_gemini_report(
         date_str=date_str,
         username=TARGET_USERNAME,
