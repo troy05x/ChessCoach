@@ -184,6 +184,7 @@ The application reads configuration from `/etc/chess-coach.env` (or environment 
 |---|---|---|
 | `CHESS_USERNAME` | `Troy05x` | Target player username on Chess.com & Lichess |
 | `GEMINI_API_KEY` | *(prompted during install)* | Google AI Studio Gemini API key |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model name (supports gemini-3.8-flash, gemini-2.5-flash) |
 | `DATA_DIR` | `/data` | Path for SQLite database and reports |
 | `STOCKFISH_PATH` | `/usr/games/stockfish` | Path to Stockfish binary |
 | `PORT` | `5000` | Web server listening port |

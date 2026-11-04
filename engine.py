@@ -54,6 +54,7 @@ DB_PATH = os.path.join(DEFAULT_DATA_DIR, "chess_coach.db")
 STATUS_FILE = os.path.join(DEFAULT_DATA_DIR, "engine_status.json")
 
 TARGET_USERNAME = os.environ.get("CHESS_USERNAME", "Troy05x")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 
 
 def update_status(stage: str, message: str, percent: int = 0, extra: Optional[Dict[str, Any]] = None) -> None:
@@ -574,31 +575,41 @@ You MUST include these exact main sections (using H2 ## headers):
 Provide direct, actionable, coach-grade advice. Keep formatting sharp with bullet points and bold emphasis.
 """
 
+    clean_key = api_key.strip().strip("'\"")
+    # Candidate models in priority order
+    candidate_models = [GEMINI_MODEL]
+    for fallback in ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
+        if fallback not in candidate_models:
+            candidate_models.append(fallback)
+
     # Method 1: Try google-genai SDK if available in current Python environment
     try:
         from google import genai
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=user_prompt,
-            config={
-                "system_instruction": system_instruction,
-                "temperature": 0.3,
-            }
-        )
-        if response and response.text:
-            logger.info("Successfully generated coaching report via google-genai SDK.")
-            return response.text
+        client = genai.Client(api_key=clean_key)
+        for model_name in candidate_models:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=user_prompt,
+                    config={
+                        "system_instruction": system_instruction,
+                        "temperature": 0.3,
+                    }
+                )
+                if response and response.text:
+                    logger.info(f"Successfully generated coaching report via google-genai SDK using {model_name}.")
+                    return response.text
+            except Exception as model_err:
+                logger.warning(f"google-genai SDK attempt with {model_name} failed: {model_err}")
+                continue
     except ImportError:
         logger.info("google-genai SDK not installed; using direct lightweight Gemini REST API.")
     except Exception as e:
-        logger.warning(f"google-genai SDK query failed ({e}); attempting direct REST API fallback...")
+        logger.warning(f"google-genai SDK initialization failed ({e}); attempting direct REST API...")
 
-    # Method 2: Direct HTTP REST call to Gemini 2.5 Flash API via requests
+    # Method 2: Direct HTTP REST call to Gemini Flash API via requests
     # Fully compatible with Python 3.8+ on Ubuntu 20.04 with zero SDK dependencies
     try:
-        clean_key = api_key.strip().strip("'\"")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={clean_key}"
         rest_body = {
             "system_instruction": {
                 "parts": [{"text": system_instruction}]
@@ -612,29 +623,36 @@ Provide direct, actionable, coach-grade advice. Keep formatting sharp with bulle
                 "temperature": 0.3
             }
         }
-        resp = requests.post(
-            url,
-            json=rest_body,
-            headers={"Content-Type": "application/json"},
-            timeout=45
-        )
-        if resp.status_code == 200:
-            result = resp.json()
-            candidates = result.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                text_parts = [p.get("text", "") for p in parts if "text" in p]
-                report_text = "".join(text_parts).strip()
-                if report_text:
-                    logger.info("Successfully generated coaching report via direct Gemini REST API.")
-                    return report_text
-        elif resp.status_code == 400 and "API_KEY_INVALID" in resp.text:
-            logger.error(
-                "Gemini API Error: The provided GEMINI_API_KEY is invalid. "
-                "Please obtain a valid API key from https://aistudio.google.com/apikey and update /etc/chess-coach.env."
+
+        for model_name in candidate_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={clean_key}"
+            resp = requests.post(
+                url,
+                json=rest_body,
+                headers={"Content-Type": "application/json"},
+                timeout=45
             )
-        else:
-            logger.error(f"Gemini REST API returned error {resp.status_code}: {resp.text}")
+            if resp.status_code == 200:
+                result = resp.json()
+                candidates = result.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    text_parts = [p.get("text", "") for p in parts if "text" in p]
+                    report_text = "".join(text_parts).strip()
+                    if report_text:
+                        logger.info(f"Successfully generated coaching report via direct Gemini REST API ({model_name}).")
+                        return report_text
+            elif resp.status_code == 400 and "API_KEY_INVALID" in resp.text:
+                logger.error(
+                    "Gemini API Error: The provided GEMINI_API_KEY is invalid. "
+                    "Please obtain a valid API key from https://aistudio.google.com/apikey and update /etc/chess-coach.env."
+                )
+                break
+            elif resp.status_code == 404:
+                logger.warning(f"Model {model_name} returned 404; trying next candidate model...")
+                continue
+            else:
+                logger.error(f"Gemini REST API returned error {resp.status_code} for {model_name}: {resp.text}")
     except Exception as e:
         logger.error(f"Direct Gemini REST API request failed: {e}")
 
