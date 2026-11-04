@@ -12,9 +12,13 @@ Features:
 """
 
 import os
+import sys
+import json
 import sqlite3
 import datetime
 import glob
+import subprocess
+import threading
 from typing import List, Dict, Any, Optional
 
 from flask import Flask, render_template, request, abort, redirect, url_for, jsonify
@@ -34,7 +38,13 @@ if not os.path.exists(DATA_DIR):
 REPORTS_DIR = os.path.join(DATA_DIR, "reports")
 os.makedirs(REPORTS_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, "chess_coach.db")
+STATUS_FILE = os.path.join(DATA_DIR, "engine_status.json")
+CRON_LOG_FILE = os.path.join(DATA_DIR, "cron_engine.log")
 TARGET_USERNAME = os.environ.get("CHESS_USERNAME", "Troy05x")
+
+# Mutex for background run execution
+_run_lock = threading.Lock()
+_is_running = False
 
 
 def get_db_connection() -> sqlite3.Connection:
@@ -277,6 +287,77 @@ def api_stats():
         "total_games": sum(r["total_games"] for r in reports),
         "total_blunders": sum(r["blunders"] for r in reports)
     })
+
+
+@app.route("/api/engine-status")
+def engine_status():
+    """Returns live progress, execution status, and recent log output."""
+    global _is_running
+    status = {
+        "is_running": _is_running,
+        "stage": "idle",
+        "message": "Engine is idle.",
+        "percent": 0,
+        "timestamp": None,
+        "recent_logs": []
+    }
+    if os.path.exists(STATUS_FILE):
+        try:
+            with open(STATUS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                status.update(data)
+                if data.get("stage") == "running":
+                    status["is_running"] = True
+        except Exception:
+            pass
+
+    # Read last 15 log lines from cron log or engine output
+    if os.path.exists(CRON_LOG_FILE):
+        try:
+            with open(CRON_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+                status["recent_logs"] = [line.strip() for line in lines[-15:] if line.strip()]
+        except Exception:
+            pass
+
+    return jsonify(status)
+
+
+def _execute_analysis_background():
+    """Executes engine.py in background thread and logs stdout/stderr."""
+    global _is_running
+    try:
+        engine_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine.py")
+        env = dict(os.environ)
+
+        # Open cron log file to append output
+        with open(CRON_LOG_FILE, "a", encoding="utf-8") as log_out:
+            log_out.write(f"\n--- Manual Run Triggered at {datetime.datetime.now(datetime.timezone.utc).isoformat()} ---\n")
+            proc = subprocess.Popen(
+                [sys.executable, engine_script],
+                stdout=log_out,
+                stderr=subprocess.STDOUT,
+                env=env
+            )
+            proc.wait()
+    except Exception as e:
+        app.logger.error(f"Error running background analysis: {e}")
+    finally:
+        _is_running = False
+
+
+@app.route("/api/run-analysis", methods=["POST"])
+def trigger_analysis():
+    """Allows user to trigger an immediate analysis run for yesterday's matches."""
+    global _is_running
+    with _run_lock:
+        if _is_running:
+            return jsonify({"status": "already_running", "message": "Analysis is already executing in background."}), 409
+
+        _is_running = True
+        thread = threading.Thread(target=_execute_analysis_background, daemon=True)
+        thread.start()
+        return jsonify({"status": "started", "message": "Background analysis initiated successfully."})
 
 
 if __name__ == "__main__":

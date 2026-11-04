@@ -51,8 +51,27 @@ if not os.path.exists(DEFAULT_DATA_DIR):
 REPORTS_DIR = os.path.join(DEFAULT_DATA_DIR, "reports")
 os.makedirs(REPORTS_DIR, exist_ok=True)
 DB_PATH = os.path.join(DEFAULT_DATA_DIR, "chess_coach.db")
+STATUS_FILE = os.path.join(DEFAULT_DATA_DIR, "engine_status.json")
 
 TARGET_USERNAME = os.environ.get("CHESS_USERNAME", "Troy05x")
+
+
+def update_status(stage: str, message: str, percent: int = 0, extra: Optional[Dict[str, Any]] = None) -> None:
+    """Updates background analyzer status file for the web dashboard."""
+    status_data = {
+        "stage": stage,
+        "message": message,
+        "percent": percent,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "extra": extra or {}
+    }
+    try:
+        tmp_file = f"{STATUS_FILE}.tmp"
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(status_data, f, indent=2)
+        os.replace(tmp_file, STATUS_FILE)
+    except Exception as e:
+        logger.warning(f"Could not update status file: {e}")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 # Candidate paths for stockfish executable
@@ -812,9 +831,11 @@ def run_pipeline(target_date: Optional[datetime.date] = None) -> None:
     date_str = target_date.strftime("%Y-%m-%d")
     logger.info(f"Starting AI Chess Coach Analyzer for {TARGET_USERNAME} on {date_str}...")
 
+    update_status("running", f"Starting analysis pipeline for date {date_str}...", 5)
     init_db()
 
     # 1. Fetch games from Chess.com and Lichess
+    update_status("running", f"Fetching matches played on {date_str} from Chess.com & Lichess...", 15)
     chess_games = fetch_chess_com_games(TARGET_USERNAME, target_date)
     lichess_games = fetch_lichess_games(TARGET_USERNAME, target_date)
     all_raw_games = chess_games + lichess_games
@@ -824,6 +845,7 @@ def run_pipeline(target_date: Optional[datetime.date] = None) -> None:
 
     if total_games_count == 0:
         logger.info(f"No games played yesterday ({date_str}). Creating 'No games' record.")
+        update_status("running", f"No games detected for {TARGET_USERNAME} on {date_str}. Creating resting summary...", 80)
         no_games_report = generate_no_games_report(date_str, TARGET_USERNAME)
         daily_stats = {
             "total_games": 0,
@@ -835,6 +857,7 @@ def run_pipeline(target_date: Optional[datetime.date] = None) -> None:
             "avg_cp_loss": 0.0
         }
         save_report_and_db(target_date, daily_stats, [], no_games_report)
+        update_status("idle", f"Completed: No games played on {date_str}.", 100, {"total_games": 0, "date": date_str})
         logger.info("Pipeline completed successfully for zero-game day.")
         return
 
@@ -848,7 +871,10 @@ def run_pipeline(target_date: Optional[datetime.date] = None) -> None:
     total_cp_losses = []
 
     for idx, raw_game in enumerate(all_raw_games, 1):
-        logger.info(f"Analyzing game {idx}/{total_games_count} ({raw_game.get('platform')})...")
+        pct = int(20 + ((idx / total_games_count) * 50))
+        msg = f"Stockfish evaluating game {idx}/{total_games_count} ({raw_game.get('platform')})..."
+        logger.info(msg)
+        update_status("running", msg, pct)
         analysis = analyze_game_with_stockfish(raw_game, TARGET_USERNAME, STOCKFISH_PATH)
         if analysis:
             analyzed_games.append(analysis)
@@ -878,9 +904,11 @@ def run_pipeline(target_date: Optional[datetime.date] = None) -> None:
     }
 
     # 3. Retrieve historical trends (7-day and 30-day patterns)
+    update_status("running", "Computing 7-day and 30-day recurring blunder patterns...", 75)
     historical_stats = get_historical_pattern_stats()
 
     # 4. Generate Gemini coaching report
+    update_status("running", "Synthesizing coaching report via Google Gemini 2.5 Flash...", 85)
     report_content = generate_gemini_report(
         date_str=date_str,
         username=TARGET_USERNAME,
@@ -890,6 +918,7 @@ def run_pipeline(target_date: Optional[datetime.date] = None) -> None:
     )
 
     # 5. Save report and update DB
+    update_status("running", "Persisting telemetry to SQLite and saving Markdown report...", 95)
     save_report_and_db(
         target_date=target_date,
         daily_stats=daily_stats,
@@ -897,6 +926,13 @@ def run_pipeline(target_date: Optional[datetime.date] = None) -> None:
         report_content=report_content
     )
 
+    update_status("idle", f"Successfully completed analysis for {date_str} ({len(analyzed_games)} games analyzed).", 100, {
+        "date": date_str,
+        "total_games": len(analyzed_games),
+        "wins": wins,
+        "losses": losses,
+        "blunders": total_blunders
+    })
     logger.info(f"Pipeline completed successfully. Analyzed {len(analyzed_games)} games.")
 
 

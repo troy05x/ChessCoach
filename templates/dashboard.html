@@ -8,8 +8,37 @@
         <h1 class="page-title">Grandmaster Telemetry Dashboard</h1>
         <p class="page-subtitle">Multi-platform game analysis, macro blunder patterns, and rolling weekly/monthly trends for <strong>{{ username }}</strong>.</p>
     </div>
-    <div class="header-action">
+    <div class="header-action" style="display: flex; gap: 0.75rem; align-items: center;">
+        <button id="btnRunNow" class="btn btn-outline" onclick="triggerRunAnalysis()">
+            <span id="runSpinner" style="display: none;">&#9696; </span>Trigger Analysis Now
+        </button>
         <a href="/reports" class="btn btn-primary">Browse All Reports &rarr;</a>
+    </div>
+</div>
+
+<!-- Live Engine Activity Banner -->
+<div class="card" style="margin-bottom: 2rem; border-left: 4px solid var(--accent);">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span id="engineStatusDot" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: var(--success);"></span>
+            <h3 style="margin: 0; font-size: 1.05rem;">Engine Status: <span id="engineStatusText">Idle</span></h3>
+        </div>
+        <span id="engineTimestamp" class="text-muted" style="font-size: 0.85rem;">Last checked: Just now</span>
+    </div>
+    <div class="card-body" style="padding-top: 0.5rem;">
+        <div style="margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+            <span id="engineMessage" style="font-size: 0.95rem; color: var(--text-primary);">Awaiting next scheduled run (04:00 AM server time).</span>
+            <span id="enginePercent" style="font-weight: 600; color: var(--accent);">0%</span>
+        </div>
+        <div class="bar-container" style="height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; margin-bottom: 1rem;">
+            <div id="engineProgressBar" class="bar-fill" style="width: 0%; height: 100%; transition: width 0.3s ease;"></div>
+        </div>
+
+        <!-- Terminal log preview -->
+        <details id="logDetails" style="font-size: 0.85rem; color: var(--text-secondary);">
+            <summary style="cursor: pointer; font-weight: 500; margin-bottom: 0.5rem;">View Background Engine Logs</summary>
+            <pre id="engineLogsPre" style="background: rgba(0,0,0,0.4); padding: 0.85rem; border-radius: 6px; overflow-x: auto; max-height: 180px; font-family: monospace; font-size: 0.8rem; margin: 0; border: 1px solid var(--border); color: #a5b4fc;">No background logs captured yet.</pre>
+        </details>
     </div>
 </div>
 
@@ -209,7 +238,78 @@
 </section>
 
 <script>
+    async function fetchEngineStatus() {
+        try {
+            const res = await fetch('/api/engine-status');
+            if (!res.ok) return;
+            const data = await res.json();
+
+            const dot = document.getElementById('engineStatusDot');
+            const statusText = document.getElementById('engineStatusText');
+            const msg = document.getElementById('engineMessage');
+            const percent = document.getElementById('enginePercent');
+            const bar = document.getElementById('engineProgressBar');
+            const logsPre = document.getElementById('engineLogsPre');
+            const btnRun = document.getElementById('btnRunNow');
+            const spinner = document.getElementById('runSpinner');
+
+            if (data.is_running || data.stage === 'running') {
+                dot.style.backgroundColor = '#f59e0b';
+                statusText.innerText = 'Analyzing Matches...';
+                statusText.className = 'text-warning';
+                btnRun.disabled = true;
+                btnRun.classList.add('disabled');
+                spinner.style.display = 'inline';
+            } else {
+                dot.style.backgroundColor = '#10b981';
+                statusText.innerText = 'Idle / Ready';
+                statusText.className = 'text-success';
+                btnRun.disabled = false;
+                btnRun.classList.remove('disabled');
+                spinner.style.display = 'none';
+            }
+
+            if (data.message) {
+                msg.innerText = data.message;
+            }
+            if (data.percent !== undefined) {
+                percent.innerText = data.percent + '%';
+                bar.style.width = data.percent + '%';
+            }
+            if (data.recent_logs && data.recent_logs.length > 0) {
+                logsPre.innerText = data.recent_logs.join('\n');
+            }
+        } catch (err) {
+            console.warn('Failed to poll engine status:', err);
+        }
+    }
+
+    async function triggerRunAnalysis() {
+        const btnRun = document.getElementById('btnRunNow');
+        const spinner = document.getElementById('runSpinner');
+        btnRun.disabled = true;
+        spinner.style.display = 'inline';
+
+        try {
+            const res = await fetch('/api/run-analysis', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+                fetchEngineStatus();
+            } else {
+                alert(data.message || 'Analysis is already running.');
+            }
+        } catch (err) {
+            alert('Failed to trigger analysis: ' + err);
+            btnRun.disabled = false;
+            spinner.style.display = 'none';
+        }
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
+        fetchEngineStatus();
+        // Poll status every 4 seconds
+        setInterval(fetchEngineStatus, 4000);
+
         const ctx = document.getElementById('blunderTrendChart').getContext('2d');
         const labels = {{ chart_dates|tojson }};
         const blunders = {{ chart_blunders|tojson }};

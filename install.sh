@@ -313,7 +313,7 @@ systemctl restart cron || systemctl restart crond || true
 log_success "Crontab scheduled for 04:00 AM server time every morning."
 
 # ------------------------------------------------------------------------------
-# 9. Deployment Verification
+# 9. Deployment Verification & Initial Analysis
 # ------------------------------------------------------------------------------
 sleep 2
 if systemctl is-active --quiet chess-coach.service; then
@@ -321,6 +321,18 @@ if systemctl is-active --quiet chess-coach.service; then
 else
     log_warning "chess-coach.service status check returned non-active. Checking logs:"
     journalctl -u chess-coach.service -n 10 --no-pager || true
+fi
+
+echo ""
+echo -e "${YELLOW}================================================================${NC}"
+echo -e "${YELLOW}                   INITIAL DATA INGESTION                       ${NC}"
+echo -e "${YELLOW}================================================================${NC}"
+read -rp "Would you like to run the initial chess analysis right now? [Y/n]: " RUN_INIT
+RUN_INIT="${RUN_INIT:-Y}"
+if [[ "$RUN_INIT" =~ ^[Yy]$ ]]; then
+    log_info "Running initial analysis for yesterday's games in the background..."
+    su - "$TARGET_USER" -c "set -a; [ -f ${ENV_FILE} ] && . ${ENV_FILE}; set +a; ${VENV_DIR}/bin/python3 ${APP_DIR}/engine.py >> ${DATA_DIR}/cron_engine.log 2>&1" &
+    log_success "Analysis triggered. Progress will be displayed directly on your web dashboard."
 fi
 
 echo ""
